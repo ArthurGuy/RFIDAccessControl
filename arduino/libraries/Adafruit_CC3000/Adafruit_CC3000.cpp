@@ -1080,6 +1080,7 @@ bool Adafruit_CC3000::connectToAP(const char *ssid, const char *key, uint8_t sec
       CHECK_PRINTER {
 		  CC3KPrinter->println(F("Timed out!"));
 	  }
+      return false;
     }
   } while (!checkConnected());
 

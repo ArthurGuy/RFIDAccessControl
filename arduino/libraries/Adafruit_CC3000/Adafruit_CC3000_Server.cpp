@@ -130,7 +130,7 @@ void Adafruit_CC3000_Server::begin() {
   // http://e2e.ti.com/support/low_power_rf/f/851/t/292664.aspx
   unsigned long aucDHCP       = 14400;
   unsigned long aucARP        = 3600;
-  unsigned long aucKeepalive  = 30;
+  unsigned long aucKeepalive  = 10;
   unsigned long aucInactivity = 0;
   cc3k_int_poll();
   if (netapp_timeout_values(&aucDHCP, &aucARP, &aucKeepalive, &aucInactivity) != 0) {

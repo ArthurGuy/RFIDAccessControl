@@ -37,7 +37,7 @@
                                            // or communication will be flakey on 16mhz chips!
 #endif
 
-//#define ENABLE_CC3K_PRINTER
+#define ENABLE_CC3K_PRINTER
 
 #ifdef ENABLE_CC3K_PRINTER
 #define CHECK_PRINTER if(CC3KPrinter != 0)

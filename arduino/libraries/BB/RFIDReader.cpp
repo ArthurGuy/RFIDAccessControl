@@ -4,9 +4,9 @@
 RFIDReader::RFIDReader(HardwareSerial& serial): _RFIDSerial(serial)
 {
   //Reset Pin
-  pinMode(_rfidResetPin, OUTPUT);
+  //pinMode(_rfidResetPin, OUTPUT);
 
-  rfidReset(0);
+  //rfidReset(0);
   _RFIDSerial.begin(9600);
 }
 
@@ -68,12 +68,12 @@ uint8_t RFIDReader::readTag()
 }
 
 void RFIDReader::rfidReset(uint8_t resetDevice) {
-    digitalWrite(_rfidResetPin, !resetDevice);
+    //digitalWrite(_rfidResetPin, !resetDevice);
 }
 
 void RFIDReader::togglePower() {
-    rfidReset(1);
-    delay(100);
-    rfidReset(0);
-    delay(200);
+    //rfidReset(1);
+    //delay(100);
+    //rfidReset(0);
+    //delay(200);
 }

@@ -14,11 +14,15 @@ Door entry system - refactored version
 #include <ccspi.h>
 #include <SPI.h>
 #include <Time.h>
+#include <Timezone.h>
 #include <aJSON.h>
+#include <Metro.h>
 
 
 #define DEVICE "new-door"
 #define TYPE "door"
+
+#define DISPLAY_TIME
 
 
 //External EEPROM
@@ -49,12 +53,24 @@ const int LEDPin = 2;
 
 
 //Time tracking
-uint8_t genericTimeCounter;
 unsigned long heartbeatTimer;
 unsigned long isOnlineTimer = 0;
 boolean forceScreenRefresh;
 boolean reportedHome = false;
+unsigned long setupDelayTimmer = 0;
+unsigned long uploadDelayTimmer = 0;
 
+
+//Delay timmers
+Metro fiveMinutes = Metro(1000);
+//Metro fiveMinutes = Metro(1000);
+
+//Daylight savings
+TimeChangeRule BST = {"BST", Last, Sun, Mar, 1, 60};        //British Summer Time
+TimeChangeRule GMT = {"GMT", Last, Sun, Oct, 2, 0};         //Standard Time
+Timezone UK(BST, GMT);
+TimeChangeRule *tcr;        //pointer to the time change rule, use to get the TZ abbrev
+time_t utc, local;
 
 
 // Use the external EEPROM as storage
@@ -142,6 +158,7 @@ void setup() {
     // ==== RFID =====
     Serial3.begin(9600);
     pinMode(rfidResetPin, OUTPUT);
+    digitalWrite(rfidResetPin, true);
   
   
     
@@ -156,6 +173,8 @@ void setup() {
     lcd.print("Please wait");
     
     
+    
+    
     // ==== Network Setup ====
 
     Serial.println("Setting up network");
@@ -163,7 +182,6 @@ void setup() {
     //delay(500);
     WiFi.setMode(1);
 
-    
     
 
     
@@ -174,8 +192,8 @@ void setup() {
     // we need two db's so if they span a wide enough gap they shouldnt interfeer
     
     
-    resetMemberDB();
-    resetLogDB();
+    //resetMemberDB();
+    //resetLogDB();
     
     //Open dbs starting at location 0
     openDBs();
@@ -198,40 +216,46 @@ void setup() {
     
     
     
-    heartbeatTimer = millis();
+    heartbeatTimer = 300000;
     
     forceScreenRefresh = true;
     
 
+    //Setup the network on boot
+    //setupDelayTimmer = millis() + 300000;
 }
-
-
 
 
 void loop() {
   
   //Network setup process - ensures its setup if the first attempt fails
-  WiFi.checkConfigure();
+  //Will try and connect every 5 minutes
+  if (!WiFi.isNetworkSetup() && (((setupDelayTimmer + 300000) < millis()) || setupDelayTimmer == 0)) {
+      lcd.home();
+      lcd.clear();
+      lcd.print("WiFi Connecting");
+      lcd.setCursor (0, 1);
+      lcd.print("Please wait");
+      
+      WiFi.checkConfigure();
+      
+      setupDelayTimmer = millis();
+      
+      forceScreenRefresh = true;
+  }
   
   //setTime(WiFi.getTime());
   //Teensy3Clock.set(WiFi.getTime());
   
   //If the time hasnt been set and the wifi class has it set the time
   if (!accessControl.isTimeSet() && WiFi.hasTime()) {
-    Serial.println("Setting the time");
-    //Update the rtc and processor clock
-    setTime(WiFi.getTime());
-    Teensy3Clock.set(WiFi.getTime());
-    digitalClockDisplay();
-    accessControl.recordTimeSet();
+    syncTime();
   }
-  
-  //lcd.clear();
-  //lcdTime();
  
   
   
-  //Are we online?
+  //Are we connected?
+  //read the connection status from the wifi module - not internet connectivity
   if ((isOnlineTimer + 5000) < millis()) {
       isOnlineTimer = millis();
       accessControl.systemOnline = WiFi.isNetworkReady();
@@ -239,18 +263,37 @@ void loop() {
   
 
   
-  //If we have just come online call home
-  if (accessControl.systemOnline && !reportedHome) {
-      WiFi.sendBootMessage(TYPE, DEVICE);
-      reportedHome = true;
-      forceScreenRefresh = true;
-  }
-  
-  //Send a heartbeat message every 300 seconds
-  if (accessControl.systemOnline) {
-      if ((heartbeatTimer + 300000) < millis()) {
-          heartbeatTimer = millis();
-          WiFi.sendHeartbeat(TYPE, DEVICE);
+  //Update every 5 minutes as long as we arent active
+  if (!accessControl.isSystemActive() && fiveMinutes.check() == 1) {
+
+      fiveMinutes.interval(300000);
+
+      if (accessControl.systemOnline) {
+
+          pleaseWaitMessage();
+
+          //If we havent reported the boot yet try that
+          if (!reportedHome) {
+            
+              Serial.println("Sending boot message");
+              if (WiFi.sendBootMessage(TYPE, DEVICE)) {
+                  reportedHome = true;
+                  forceScreenRefresh = true;
+              }
+              
+          //} else if (countLocalLogRecords() > 0) {
+            
+          //    Serial.println("Uploading local records");
+          //    uploadLogFiles();
+              
+          } else {
+
+              Serial.println("Sending heartbeat");
+              WiFi.sendHeartbeat(TYPE, DEVICE);
+              
+          }
+
+          forceScreenRefresh = true;
       }
   }
   
@@ -301,7 +344,7 @@ void loop() {
           lcd.clear();
           lcd.print("No Access");
           
-          delay(500);
+          delay(1000);
           
           forceScreenRefresh = true;
           //set the timer so the screen will refresh in 3 seconds
@@ -347,12 +390,25 @@ void loop() {
       }
       
       
+      #ifdef DISPLAY_TIME
+      
+      if (accessControl.isTimeSet()) {
+          lcd.setCursor(4, 1);
+          lcdTime();
+      } else {
+          lcd.setCursor (4, 1);
+          lcd.print("Welcome");
+      }
+      
+      #endif
+      
+      
       
       
       //Do we have anything to upload
-      if (accessControl.systemOnline && (countLocalLogRecords() > 0)) {
-          //lcd.print(countLocalLogRecords());
+      if (accessControl.systemOnline && (countLocalLogRecords() > 0) && ((uploadDelayTimmer + 60000) < millis())) {
           uploadLogFiles();
+          uploadDelayTimmer = millis();
       }
       
       
@@ -385,18 +441,36 @@ void loop() {
 
 void displayReadyMessage()
 {
-  lcd.begin(8,2);
-  lcd.clear();
-  lcd.print("Welcome to");
-  lcd.setCursor (0, 1);
-  lcd.print("Build Brighton");
+  #ifdef DISPLAY_TIME
+    
+      lcd.clear();
+      lcd.setCursor (1, 0);
+      lcd.print("Build Brighton");
+      
+  #else
   
-  lcd.setCursor (14, 1);
-  if (accessControl.systemOnline) {
-    //lcd.print(".");
-  } else {
-    lcd.print(".");
-  }
+      lcd.begin(8,2);
+      lcd.clear();
+      lcd.print("Welcome to");
+      lcd.setCursor (0, 1);
+      lcd.print("Build Brighton");
+      
+      lcd.setCursor (14, 1);
+      if (accessControl.systemOnline) {
+        //lcd.print(".");
+      } else {
+        lcd.print(".");
+      }
+      
+  #endif
+}
+
+void pleaseWaitMessage() {
+    lcd.home();
+    lcd.clear();
+    lcd.print("Uploading");
+    lcd.setCursor (0, 1);
+    lcd.print("Please wait");
 }
 
 void resetLogDB()
@@ -456,19 +530,16 @@ uint8_t searchRemoteDB(char tagString[13])
     //Clear the buffer before sending the tag - we want a clean buffer
     WiFi.clearBuffer();
     
-    if (!WiFi.sendLookup(TYPE, DEVICE, tagString)) { //not making it past this point
+    if (WiFi.sendLookup(TYPE, DEVICE, tagString) == false)
+    {
         return false;
-      
     }
     else
     {
-      Serial.println(WiFi.receivedString);
-        aJsonObject* jsonObject = aJson.parse(WiFi.receivedString);
+      Serial.println(WiFi.serverResponse);
+        aJsonObject* jsonObject = aJson.parse(WiFi.serverResponse);
         aJsonObject* valid = aJson.getObjectItem(jsonObject, "valid");
         aJsonObject* cmd = aJson.getObjectItem(jsonObject, "cmd");
-        
-        //record the command for actioning later
-        cmd->valuestring;
         
         
         if (valid->valuestring[0] == '1') {
@@ -536,21 +607,18 @@ void uploadLogFiles() {
   
     lcd.clear();
     lcd.print("Please Wait");
+    lcd.setCursor (0, 1);
+    lcd.print("Uploading...");
   
     for (int recno = 1; recno <= countLocalLogRecords(); recno++)
     {
-        //Serial.print("Recno: "); 
-        //Serial.println(recno);
         EDB_Status result = logDb.readRec(recno, EDB_REC logRecord);
         if (result == EDB_OK)
-        {
-          
-            lcd.setCursor (0, 1);
-            lcd.print(logRecord.tag);
-            
-            WiFi.sendArchiveLookup(TYPE, DEVICE, logRecord.tag, logRecord.time);
-            
-            logDb.deleteRec(recno);
+        {   
+            if (WiFi.sendArchiveLookup(TYPE, DEVICE, logRecord.tag, logRecord.time))
+            {
+                logDb.deleteRec(recno);
+            }
             
             delay(200);
         }
@@ -558,6 +626,19 @@ void uploadLogFiles() {
     
     forceScreenRefresh = true;
 }
+
+
+
+void syncTime()
+{
+    Serial.println("Setting the time");
+    //Update the rtc and processor clock
+    setTime(WiFi.getTime());
+    Teensy3Clock.set(WiFi.getTime());
+    digitalClockDisplay();
+    accessControl.recordTimeSet();
+}
+
 
 
 void copyString(char *p1, char *p2)
@@ -643,8 +724,12 @@ byte readEEPROM(unsigned int eeaddress )
 
   
 void lcdTime() {
-  lcd.home();
-  lcd.print(hour());
+  
+  //Convert to local time (timezone adjustment)
+  local = UK.toLocal(now(), &tcr);
+  
+  //lcd.home();
+  lcd.print(hour(local));
   lcd.print(":");
   lcdPrintDigits(minute());
   lcd.print(":");
@@ -652,8 +737,12 @@ void lcdTime() {
 }
 
 void digitalClockDisplay() {
+  
+  //Convert to local time (timezone adjustment)
+  local = UK.toLocal(now(), &tcr);
+  
   // digital clock display of the time
-  Serial.print(hour());
+  Serial.print(hour(local));
   serialPrintDigits(minute());
   serialPrintDigits(second());
   Serial.print(" ");

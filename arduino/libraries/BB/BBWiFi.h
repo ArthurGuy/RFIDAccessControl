@@ -10,11 +10,12 @@ class BBWiFi
   public:
     BBWiFi(int csPin, int irqPin, int vbenPin);
     BBWiFi(int csPin, int irqPin, int vbenPin, int onlineLedPin);
-    boolean isNetworkReady();
+    bool isNetworkReady();
+    bool isNetworkSetup();
     void checkConfigure();
     void reset();
     void setMode(int mode);
-    void sendBootMessage(char *type, char *device);
+    bool sendBootMessage(char *type, char *device);
     void sendHeartbeat(char *type, char *device);
     bool sendData(char *stringToSend, char httpResponse[]);
     bool sendLookup(char *type, char *device, char *keyFob);
@@ -27,7 +28,7 @@ class BBWiFi
     void clearBuffer();
     boolean isBusy();
 
-    char receivedString[150];
+    char serverResponse[150];
     int receiveString();
     boolean waitForResponse();
 
@@ -38,7 +39,6 @@ class BBWiFi
   private:
   
     void onlineLed(int online);
-    bool isNetworkSetup();
     void setupNetwork();
     bool displayConnectionDetails();
     void fetchResponse(char httpResponse[]);
@@ -71,7 +71,7 @@ class BBWiFi
     char _url[50];
     
     const unsigned long _dhcpTimeout = 60L * 1000L;
-    const unsigned long connectTimeout = 15000;
+    const unsigned long connectTimeout = 5000;
           
     Adafruit_CC3000 _cc3000;
     Adafruit_CC3000_Client _client;

@@ -28,7 +28,7 @@ BBWiFi::BBWiFi(int csPin, int irqPin, int vbenPin, int onlineLedPin):_cc3000(csP
   onlineLed(false);
   
 
-  strcpy(_wifi_ssid, "ArthurGuy.co.uk");
+  strcpy(_wifi_ssid, "BBPrivate");
   strcpy(_wifi_pass, "");
   _wifi_mode = 3;
   
@@ -65,7 +65,7 @@ void BBWiFi::reset()
 }
 
 //Is the network ready and online
-boolean BBWiFi::isNetworkReady() {
+bool BBWiFi::isNetworkReady() {
 	
 	int online = 0;
 
@@ -201,7 +201,7 @@ void BBWiFi::decodeResponse(char *serverResponse, char *message) {
     sprintf(cmd, "%s", jsonCmd->valuestring);
     //Serial.print("Command Received:"); Serial.println(cmd);
 
-    if (cmd) {
+    if (sizeof(cmd) > 0) {
         _has_cmd = true;
     } else {
         _has_cmd = false;
@@ -209,7 +209,7 @@ void BBWiFi::decodeResponse(char *serverResponse, char *message) {
 }
 
 //Send a message home reporting that we have booted up
-void BBWiFi::sendBootMessage(char *type, char *device) {
+bool BBWiFi::sendBootMessage(char *type, char *device) {
   Serial.println("sending boot message");
   char serverResponse[150];
 
@@ -218,11 +218,13 @@ void BBWiFi::sendBootMessage(char *type, char *device) {
 
   char stringToSend[150];
   sprintf(stringToSend, "{\"device\":\"%s\", \"type\":\"%s\", \"message\":\"boot\"}", device, type);
-  sendData(stringToSend, serverResponse);
-  //Serial.println(serverResponse);
+  if (sendData(stringToSend, serverResponse)) {
+    //Serial.println(serverResponse);
+    decodeResponse(serverResponse, "boot");
 
-  decodeResponse(serverResponse, "boot");
-
+    return true;
+  }
+  return false;
 }
 
 void BBWiFi::sendHeartbeat(char *type, char *device) {
@@ -233,28 +235,29 @@ void BBWiFi::sendHeartbeat(char *type, char *device) {
   memset(&serverResponse[0], 0, sizeof(serverResponse));
 
   sprintf(stringToSend, "{\"device\":\"%s\", \"type\":\"%s\", \"message\":\"heartbeat\"}", device, type);
-  sendData(stringToSend, serverResponse);
-  decodeResponse(serverResponse, "heartbeat");
+  if (sendData(stringToSend, serverResponse)) {
+    decodeResponse(serverResponse, "heartbeat");
+  }
 }
 
 //Lookup a key fob
 bool BBWiFi::sendLookup(char *type, char *device, char *keyFob) {
   Serial.println("sending lookup message");
-  char serverResponse[150];
+  //char serverResponse[150];
   char stringToSend[150];
   sprintf(stringToSend,"{\"device\":\"%s\", \"type\":\"%s\", \"message\":\"lookup\", \"key_fob\":\"%s\"}", device, type, keyFob);
-  Serial.println(stringToSend);
+  //Serial.println(stringToSend);
 
   //Clear the array for the new string
   memset(&serverResponse[0], 0, sizeof(serverResponse));
 
   //Send the request
   if (sendData(stringToSend, serverResponse)) {
-    Serial.println("sendLookup received: ");
-    Serial.println(serverResponse);
+    //Serial.println("sendLookup received: ");
+    //Serial.println(serverResponse);
     decodeResponse(serverResponse, "lookup");
 
-    Serial.println("Returning from lookup");
+    //Serial.println("Returning from lookup");
     return true;
   }
   return false;
@@ -265,7 +268,7 @@ bool BBWiFi::sendArchiveLookup(char *type, char *device, char *keyFob, time_t ti
     char serverResponse[150];
     char stringToSend[150];
     sprintf(stringToSend,"{\"device\":\"%s\", \"type\":\"%s\", \"message\":\"lookup\", \"key_fob\":\"%s\", \"time\":\"%d\"}", device, type, keyFob, time);
-    Serial.println(stringToSend);
+    //Serial.println(stringToSend);
 
     //Clear the array for the new string
     memset(&serverResponse[0], 0, sizeof(serverResponse));
@@ -285,20 +288,20 @@ bool BBWiFi::sendArchiveLookup(char *type, char *device, char *keyFob, time_t ti
 bool BBWiFi::sendData(char *stringToSend, char httpResponse[]) {
   unsigned int t = millis();
   bool status;
-  
-  
+
+
   //Ensure we have the ip of the target server looked up
   if (!lookupIp()) {
   	Serial.println(F("IP Lookup Timeout"));
   	return false;
   }
-  
-  
+
+
   do {
     _client = _cc3000.connectTCP(_target_ip, 80);
   } while((!_client.connected()) && ((millis() - t) < connectTimeout));
 
-  
+
   if (_client.connected()) {
     _client.fastrprint(F("POST "));
     _client.fastrprint(_url);
@@ -313,9 +316,9 @@ bool BBWiFi::sendData(char *stringToSend, char httpResponse[]) {
     _client.print(stringToSend);
 
     //Serial.println(stringToSend);
-    
+
     //Wait for the response to be ready
-    unsigned long next = millis() + 4000; 
+    unsigned long next = millis() + 4000;
     boolean timedOut = false;
     while(_client.available()==0 && !timedOut) {
       if ((next - millis()) < 100){
@@ -324,7 +327,7 @@ bool BBWiFi::sendData(char *stringToSend, char httpResponse[]) {
         status = false;
       }
     }
-    
+
     if (timedOut == false) {
         fetchResponse(httpResponse);
         //Serial.print("sendData received: ");
@@ -333,14 +336,14 @@ bool BBWiFi::sendData(char *stringToSend, char httpResponse[]) {
     	_client.close();
     	return false;
     }
-      
+
   } else {
-    Serial.println(F("Connect failed"));    
+    _client.close();
+    Serial.println(F("Connect failed"));
     return false;
   }
-  
-  
-      
+
+
   _client.close();
 
 
